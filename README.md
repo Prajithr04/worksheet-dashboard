@@ -41,6 +41,12 @@ VITE_WORKSHEET_API_URL=https://<your-catalyst-domain>/server/worksheet_function/
 
 The client automatically retries with `GET` if `POST` returns HTTP `405`.
 
+If your frontend is hosted on a different domain than the Catalyst function URL,
+the browser will block requests unless CORS is enabled for that origin. In that case,
+either host frontend and function under the same origin, configure an API proxy on the
+frontend host (`/server/*` -> Catalyst), or enable CORS for your frontend origin in
+Catalyst API Gateway.
+
 ## 3) Run frontend
 
 ```bash
