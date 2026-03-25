@@ -32,6 +32,15 @@ Override using environment variable in `worksheet/.env` if needed:
 VITE_WORKSHEET_API_URL=https://<your-domain>/server/worksheet_function
 ```
 
+For production deployments (for example, web client hosting on a custom domain), set
+`VITE_WORKSHEET_API_URL` to your deployed function execute URL:
+
+```bash
+VITE_WORKSHEET_API_URL=https://<your-catalyst-domain>/server/worksheet_function/execute
+```
+
+The client automatically retries with `GET` if `POST` returns HTTP `405`.
+
 ## 3) Run frontend
 
 ```bash

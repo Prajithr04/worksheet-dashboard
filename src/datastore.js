@@ -16,6 +16,41 @@ function buildErrorMessage(lastError) {
   return lastError.message || 'API request failed'
 }
 
+function parseApiPayload(responseText, apiUrl) {
+  let json
+
+  try {
+    json = JSON.parse(responseText)
+  } catch (_error) {
+    throw new Error(`Invalid API response from ${apiUrl}: ${responseText || 'empty response'}`)
+  }
+
+  if (json && typeof json === 'object' && typeof json.output === 'string') {
+    try {
+      return JSON.parse(json.output)
+    } catch (_error) {
+      throw new Error(`Invalid API output payload from ${apiUrl}`)
+    }
+  }
+
+  return json
+}
+
+function buildQueryUrl(apiUrl, action, { id, payload } = {}) {
+  const url = new URL(apiUrl, window.location.origin)
+  url.searchParams.set('action', action)
+
+  if (id !== undefined && id !== null) {
+    url.searchParams.set('id', String(id))
+  }
+
+  if (payload !== undefined) {
+    url.searchParams.set('payload', JSON.stringify(payload))
+  }
+
+  return url.toString()
+}
+
 async function callApiOnce(apiUrl, action, { id, payload } = {}) {
   const body = { action }
 
@@ -27,7 +62,7 @@ async function callApiOnce(apiUrl, action, { id, payload } = {}) {
     body.payload = payload
   }
 
-  const response = await fetch(apiUrl, {
+  let response = await fetch(apiUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -35,23 +70,14 @@ async function callApiOnce(apiUrl, action, { id, payload } = {}) {
     body: JSON.stringify(body),
   })
 
+  if (response.status === 405) {
+    response = await fetch(buildQueryUrl(apiUrl, action, { id, payload }), {
+      method: 'GET',
+    })
+  }
+
   const responseText = await response.text()
-  let json
-
-  try {
-    json = JSON.parse(responseText)
-  } catch (_error) {
-    throw new Error(`Invalid API response from ${apiUrl}: ${responseText || 'empty response'}`)
-  }
-
-  let normalized = json
-  if (json && typeof json === 'object' && typeof json.output === 'string') {
-    try {
-      normalized = JSON.parse(json.output)
-    } catch (_error) {
-      throw new Error(`Invalid API output payload from ${apiUrl}`)
-    }
-  }
+  const normalized = parseApiPayload(responseText, apiUrl)
 
   if (!response.ok || !normalized?.ok) {
     throw new Error(normalized?.error || `API request failed (${response.status})`)
