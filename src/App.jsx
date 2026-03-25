@@ -237,7 +237,7 @@ function App() {
       setEditingId(null)
     } catch (error) {
       console.error('Failed to save entry:', error)
-      window.alert('Unable to save entry to Data Store. Please check Catalyst app setup.')
+      window.alert('Unable to save entry. Please check backend function and Data Store configuration.')
     }
   }
 
@@ -256,7 +256,7 @@ function App() {
       setDeletingId(null)
     } catch (error) {
       console.error('Failed to delete entry:', error)
-      window.alert('Unable to delete entry from Data Store.')
+      window.alert('Unable to delete entry. Please check backend function and Data Store configuration.')
     }
   }
 

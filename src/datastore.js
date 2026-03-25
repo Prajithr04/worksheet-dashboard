@@ -1,140 +1,92 @@
-const TABLE_ID = import.meta.env.VITE_CATALYST_TABLE_ID
-const TABLE_NAME = import.meta.env.VITE_CATALYST_TABLE_NAME
+const CONFIGURED_API_URL = import.meta.env.VITE_WORKSHEET_API_URL
 
-function getCatalystApp() {
-  if (typeof window === 'undefined') {
-    return null
+function getApiCandidates() {
+  if (CONFIGURED_API_URL) {
+    return [CONFIGURED_API_URL]
   }
 
-  return window.app || window.__CATALYST_APP__ || null
+  return ['/server/worksheet_function/execute', '/server/worksheet_function']
 }
 
-function getTableIdentifier() {
-  return TABLE_ID || TABLE_NAME
+function buildErrorMessage(lastError) {
+  if (!lastError) {
+    return 'API request failed'
+  }
+
+  return lastError.message || 'API request failed'
 }
 
-function getTable() {
-  const app = getCatalystApp()
-  if (!app || typeof app.datastore !== 'function') {
-    throw new Error('Catalyst app instance is not available on window.app')
+async function callApiOnce(apiUrl, action, { id, payload } = {}) {
+  const body = { action }
+
+  if (id !== undefined && id !== null) {
+    body.id = String(id)
   }
 
-  const tableIdentifier = getTableIdentifier()
-  if (!tableIdentifier) {
-    throw new Error('Set VITE_CATALYST_TABLE_ID or VITE_CATALYST_TABLE_NAME in your environment')
+  if (payload !== undefined) {
+    body.payload = payload
   }
 
-  const datastore = app.datastore()
-  return datastore.table(tableIdentifier)
-}
-
-function formatDate(value) {
-  if (!value) {
-    return new Date().toLocaleDateString('en-GB', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-    })
-  }
-
-  const dt = new Date(value)
-  if (Number.isNaN(dt.getTime())) {
-    return String(value)
-  }
-
-  return dt.toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
+  const response = await fetch(apiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
   })
-}
 
-function toIsoNow() {
-  return new Date().toISOString()
-}
+  const responseText = await response.text()
+  let json
 
-function mapRowToEntry(row) {
-  return {
-    id: String(row.ROWID),
-    client: row.client_tag || 'Internal',
-    volatile: row.volatile || 'Low',
-    title: row.title || '',
-    desc: row.description || '',
-    ticket: row.ticket_link || '',
-    pr: row.pr_link || '',
-    status: row.status || 'In Progress',
-    user: row.assigned_to || '',
-    date: formatDate(row.updated_at || row.created_at || row.MODIFIEDTIME || row.CREATEDTIME),
+  try {
+    json = JSON.parse(responseText)
+  } catch (_error) {
+    throw new Error(`Invalid API response from ${apiUrl}: ${responseText || 'empty response'}`)
   }
-}
 
-function toInsertPayload(entry) {
-  return {
-    title: entry.title,
-    description: entry.desc || '',
-    client_tag: entry.client || 'Internal',
-    volatile: entry.volatile || 'Low',
-    status: entry.status || 'In Progress',
-    ticket_link: entry.ticket || '',
-    pr_link: entry.pr || '',
-    assigned_to: entry.user || '',
-    created_at: toIsoNow(),
-    updated_at: toIsoNow(),
-  }
-}
-
-function toUpdatePayload(rowId, entry) {
-  return {
-    ROWID: rowId,
-    title: entry.title,
-    description: entry.desc || '',
-    client_tag: entry.client || 'Internal',
-    volatile: entry.volatile || 'Low',
-    status: entry.status || 'In Progress',
-    ticket_link: entry.ticket || '',
-    pr_link: entry.pr || '',
-    assigned_to: entry.user || '',
-    updated_at: toIsoNow(),
-  }
-}
-
-async function getAllRows(table) {
-  let hasNext = true
-  let nextToken
-  const rows = []
-
-  while (hasNext) {
-    const response = await table.getPagedRows({ nextToken, maxRows: 200 })
-    if (Array.isArray(response?.data)) {
-      rows.push(...response.data)
+  let normalized = json
+  if (json && typeof json === 'object' && typeof json.output === 'string') {
+    try {
+      normalized = JSON.parse(json.output)
+    } catch (_error) {
+      throw new Error(`Invalid API output payload from ${apiUrl}`)
     }
-
-    hasNext = Boolean(response?.more_records)
-    nextToken = response?.next_token
   }
 
-  return rows
+  if (!response.ok || !normalized?.ok) {
+    throw new Error(normalized?.error || `API request failed (${response.status})`)
+  }
+
+  return normalized.data
+}
+
+async function callApi(action, options) {
+  const apiCandidates = getApiCandidates()
+  let lastError
+
+  for (const apiUrl of apiCandidates) {
+    try {
+      return await callApiOnce(apiUrl, action, options)
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw new Error(buildErrorMessage(lastError))
 }
 
 export async function listEntries() {
-  const table = getTable()
-  const rows = await getAllRows(table)
-  return rows.map(mapRowToEntry)
+  return callApi('list')
 }
 
 export async function createEntry(entry) {
-  const table = getTable()
-  const inserted = await table.insertRow(toInsertPayload(entry))
-  return mapRowToEntry(inserted)
+  return callApi('create', { payload: entry })
 }
 
 export async function updateEntry(rowId, entry) {
-  const table = getTable()
-  const updated = await table.updateRow(toUpdatePayload(rowId, entry))
-  return mapRowToEntry(updated)
+  return callApi('update', { id: rowId, payload: entry })
 }
 
 export async function deleteEntry(rowId) {
-  const table = getTable()
-  await table.deleteRow(rowId)
+  await callApi('delete', { id: rowId })
 }

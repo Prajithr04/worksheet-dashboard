@@ -1,34 +1,43 @@
 # IT Work Tracker (React + Vite)
 
-This app now supports Catalyst Data Store persistence for:
-- listing entries
-- creating entries
-- updating entries
-- deleting entries
+The app persists entries through a Catalyst backend function (`worksheet_function`) that performs Data Store CRUD.
 
-## 1) Configure table target
+## 1) Configure backend Data Store table
 
-Create a `.env` file in the project root with one of the following:
+In `worksheet-backend/functions/worksheet_function/catalyst-config.json`, set one of:
+
+- `CATALYST_TABLE_ID`
+- `CATALYST_TABLE_NAME`
+
+The function requires at least one of these values to resolve the target table.
+
+## 2) Backend API contract used by frontend
+
+Frontend calls a single endpoint with JSON body:
+
+- `action: "list"`
+- `action: "create", payload: {...}`
+- `action: "update", id: "<ROWID>", payload: {...}`
+- `action: "delete", id: "<ROWID>"`
+
+Default endpoint in frontend is:
 
 ```bash
-VITE_CATALYST_TABLE_ID=34645000000021897
-# or
-VITE_CATALYST_TABLE_NAME=YourTableName
+/server/worksheet_function
 ```
 
-## 2) Provide Catalyst app instance
-
-Before rendering the React app, ensure a Catalyst app instance is available as either:
-- `window.app`, or
-- `window.__CATALYST_APP__`
-
-The Data Store wrapper calls `app.datastore().table(...)` using the configured table id/name.
-
-## 3) Run
+Override using environment variable in `worksheet/.env` if needed:
 
 ```bash
+VITE_WORKSHEET_API_URL=https://<your-domain>/server/worksheet_function
+```
+
+## 3) Run frontend
+
+```bash
+cd worksheet
 npm install
 npm run dev
 ```
 
-If Catalyst is not configured, the UI automatically falls back to local sample data so the app still runs.
+If backend/API is unreachable, the UI falls back to local sample data.
