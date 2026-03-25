@@ -1,8 +1,30 @@
 const CONFIGURED_API_URL = import.meta.env.VITE_WORKSHEET_API_URL
+const FALLBACK_API_URL = import.meta.env.VITE_WORKSHEET_API_FALLBACK_URL
+
+function normalizeUrl(url) {
+  if (!url) {
+    return ''
+  }
+
+  return String(url).trim()
+}
 
 function getApiCandidates() {
-  if (CONFIGURED_API_URL) {
-    return [CONFIGURED_API_URL]
+  const primaryUrl = normalizeUrl(CONFIGURED_API_URL)
+  const fallbackUrl = normalizeUrl(FALLBACK_API_URL)
+
+  const candidates = []
+
+  if (primaryUrl) {
+    candidates.push(primaryUrl)
+  }
+
+  if (fallbackUrl && fallbackUrl !== primaryUrl) {
+    candidates.push(fallbackUrl)
+  }
+
+  if (candidates.length > 0) {
+    return candidates
   }
 
   return ['/server/worksheet_function/execute', '/server/worksheet_function']
@@ -17,6 +39,13 @@ function buildErrorMessage(lastError) {
 }
 
 function parseApiPayload(responseText, apiUrl) {
+  const trimmed = (responseText || '').trim()
+  if (trimmed.startsWith('<!doctype html') || trimmed.startsWith('<html')) {
+    throw new Error(
+      `Invalid API response from ${apiUrl}: received HTML page instead of JSON (check route/proxy/CORS)`
+    )
+  }
+
   let json
 
   try {

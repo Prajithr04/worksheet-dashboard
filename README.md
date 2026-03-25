@@ -6,8 +6,8 @@ The app persists entries through a Catalyst backend function (`worksheet_functio
 
 In `worksheet-backend/functions/worksheet_function/catalyst-config.json`, set one of:
 
-- `CATALYST_TABLE_ID`
-- `CATALYST_TABLE_NAME`
+- `WORKSHEET_TABLE_ID`
+- `WORKSHEET_TABLE_NAME`
 
 The function requires at least one of these values to resolve the target table.
 
@@ -23,13 +23,13 @@ Frontend calls a single endpoint with JSON body:
 Default endpoint in frontend is:
 
 ```bash
-/server/worksheet_function
+/server/worksheet_function/execute
 ```
 
 Override using environment variable in `worksheet/.env` if needed:
 
 ```bash
-VITE_WORKSHEET_API_URL=https://<your-domain>/server/worksheet_function
+VITE_WORKSHEET_API_URL=https://<your-domain>/server/worksheet_function/execute
 ```
 
 For production deployments (for example, web client hosting on a custom domain), set
@@ -37,6 +37,13 @@ For production deployments (for example, web client hosting on a custom domain),
 
 ```bash
 VITE_WORKSHEET_API_URL=https://<your-catalyst-domain>/server/worksheet_function/execute
+```
+
+You can also add a fallback URL if your primary route is a same-origin path that may
+not be wired in all environments:
+
+```bash
+VITE_WORKSHEET_API_FALLBACK_URL=https://<your-catalyst-domain>/server/worksheet_function/execute
 ```
 
 The client automatically retries with `GET` if `POST` returns HTTP `405`.
