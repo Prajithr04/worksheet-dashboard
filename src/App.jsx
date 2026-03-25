@@ -1,5 +1,11 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import './App.css'
+import {
+  createEntry as createEntryInStore,
+  deleteEntry as deleteEntryInStore,
+  listEntries,
+  updateEntry as updateEntryInStore,
+} from './datastore'
 
 const ME = 'john.doe@co.com'
 
@@ -79,7 +85,7 @@ const initialData = [
 ]
 
 function App() {
-  const [data, setData] = useState(initialData)
+  const [data, setData] = useState([])
   const [currentView, setCurrentView] = useState('mine')
   const [currentFilter, setCurrentFilter] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
@@ -87,6 +93,8 @@ function App() {
   const [deletingId, setDeletingId] = useState(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [isUsingFallbackData, setIsUsingFallbackData] = useState(false)
 
   // Form state
   const [formData, setFormData] = useState({
@@ -100,6 +108,25 @@ function App() {
     user: '',
   })
 
+  useEffect(() => {
+    const loadEntries = async () => {
+      setLoading(true)
+      try {
+        const entries = await listEntries()
+        setData(entries)
+        setIsUsingFallbackData(false)
+      } catch (error) {
+        console.error('Datastore unavailable, using local sample data:', error)
+        setData(initialData)
+        setIsUsingFallbackData(true)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadEntries()
+  }, [])
+
   const filteredData = useMemo(() => {
     let items = currentView === 'mine' ? data.filter((d) => d.user === ME) : data
 
@@ -111,9 +138,9 @@ function App() {
       const q = searchQuery.toLowerCase()
       items = items.filter(
         (d) =>
-          d.title.toLowerCase().includes(q) ||
-          d.desc.toLowerCase().includes(q) ||
-          d.client.toLowerCase().includes(q)
+          (d.title || '').toLowerCase().includes(q) ||
+          (d.desc || '').toLowerCase().includes(q) ||
+          (d.client || '').toLowerCase().includes(q)
       )
     }
 
@@ -136,7 +163,7 @@ function App() {
   }
 
   const handleOpenEdit = (id) => {
-    const entry = data.find((x) => x.id === id)
+    const entry = data.find((x) => String(x.id) === String(id))
     if (!entry) return
     setEditingId(id)
     setFormData({
@@ -152,50 +179,66 @@ function App() {
     setModalOpen(true)
   }
 
-  const handleSubmitEntry = () => {
+  const handleSubmitEntry = async () => {
     if (!formData.title.trim()) return
 
-    if (editingId !== null) {
-      setData((prevData) =>
-        prevData.map((item) =>
-          item.id === editingId
-            ? {
-                ...item,
-                client: formData.client || item.client,
-                volatile: formData.volatile,
-                title: formData.title,
-                desc: formData.desc,
-                ticket: formData.ticket,
-                pr: formData.pr,
-                status: formData.status,
-                user:
-                  currentView === 'admin' ? formData.user || item.user : item.user,
-              }
-            : item
-        )
-      )
-    } else {
-      const newEntry = {
-        id: Date.now(),
-        client: formData.client.trim() || 'Internal',
-        volatile: formData.volatile,
-        title: formData.title.trim(),
-        desc: formData.desc.trim() || '',
-        ticket: formData.ticket.trim() || '',
-        pr: formData.pr.trim() || '',
-        status: formData.status,
-        date: new Date().toLocaleDateString('en-GB', {
-          day: 'numeric',
-          month: 'short',
-          year: 'numeric',
-        }),
-        user: currentView === 'admin' ? formData.user.trim() || ME : ME,
-      }
-      setData((prevData) => [newEntry, ...prevData])
+    const payload = {
+      client: formData.client.trim() || 'Internal',
+      volatile: formData.volatile,
+      title: formData.title.trim(),
+      desc: formData.desc.trim() || '',
+      ticket: formData.ticket.trim() || '',
+      pr: formData.pr.trim() || '',
+      status: formData.status,
+      user: currentView === 'admin' ? formData.user.trim() || ME : ME,
     }
 
-    setModalOpen(false)
-    setEditingId(null)
+    try {
+      if (editingId !== null && !isUsingFallbackData) {
+        const updated = await updateEntryInStore(editingId, payload)
+        setData((prevData) =>
+          prevData.map((item) => (String(item.id) === String(editingId) ? updated : item))
+        )
+      } else if (editingId !== null) {
+        setData((prevData) =>
+          prevData.map((item) =>
+            String(item.id) === String(editingId)
+              ? {
+                  ...item,
+                  ...payload,
+                  date: new Date().toLocaleDateString('en-GB', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                  }),
+                }
+              : item
+          )
+        )
+      } else if (!isUsingFallbackData) {
+        const created = await createEntryInStore(payload)
+        setData((prevData) => [created, ...prevData])
+      } else {
+        setData((prevData) => [
+          {
+            id: Date.now(),
+            ...payload,
+            date: new Date().toLocaleDateString('en-GB', {
+              day: 'numeric',
+              month: 'short',
+              year: 'numeric',
+            }),
+          },
+          ...prevData,
+        ])
+      }
+
+      setModalOpen(false)
+      setEditingId(null)
+    } catch (error) {
+      console.error('Failed to save entry:', error)
+      window.alert('Unable to save entry to Data Store. Please check Catalyst app setup.')
+    }
   }
 
   const handleOpenDelete = (id) => {
@@ -203,10 +246,18 @@ function App() {
     setDeleteConfirmOpen(true)
   }
 
-  const handleConfirmDelete = () => {
-    setData((prevData) => prevData.filter((x) => x.id !== deletingId))
-    setDeleteConfirmOpen(false)
-    setDeletingId(null)
+  const handleConfirmDelete = async () => {
+    try {
+      if (!isUsingFallbackData) {
+        await deleteEntryInStore(deletingId)
+      }
+      setData((prevData) => prevData.filter((x) => String(x.id) !== String(deletingId)))
+      setDeleteConfirmOpen(false)
+      setDeletingId(null)
+    } catch (error) {
+      console.error('Failed to delete entry:', error)
+      window.alert('Unable to delete entry from Data Store.')
+    }
   }
 
   const handleResetFilter = () => {
@@ -221,7 +272,7 @@ function App() {
     }
   }
 
-  const deletingEntry = data.find((x) => x.id === deletingId)
+  const deletingEntry = data.find((x) => String(x.id) === String(deletingId))
 
   return (
     <div className="shell" onKeyDown={handleKeyDown} tabIndex={0}>
@@ -251,6 +302,7 @@ function App() {
         <Feed
           data={filteredData}
           currentView={currentView}
+          loading={loading}
           onEdit={handleOpenEdit}
           onDelete={handleOpenDelete}
         />
@@ -467,7 +519,17 @@ function FilterBar({ currentFilter, onSetFilter }) {
   )
 }
 
-function Feed({ data, currentView, onEdit, onDelete }) {
+function Feed({ data, currentView, loading, onEdit, onDelete }) {
+  if (loading) {
+    return (
+      <div className="feed">
+        <div className="empty-state">
+          <p>Loading entries...</p>
+        </div>
+      </div>
+    )
+  }
+
   if (data.length === 0) {
     return (
       <div className="feed">
